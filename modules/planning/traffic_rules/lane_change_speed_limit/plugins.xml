@@ -1,3 +1,0 @@
-<library path="modules/planning/traffic_rules/lane_change_speed_limit/liblane_change_speed_limit.so">
-    <class type="apollo::planning::LaneChangeSpeedLimit" base_class="apollo::planning::TrafficRule"></class>
-</library>

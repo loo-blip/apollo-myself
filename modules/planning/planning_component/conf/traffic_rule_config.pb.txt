@@ -34,7 +34,3 @@ rule {
   name: "YIELD_SIGN"
   type: "YieldSign"
 }
-rule {
-  name: "LANE_CHANGE_SPEED_LIMIT"
-  type: "LaneChangeSpeedLimit"
-}
