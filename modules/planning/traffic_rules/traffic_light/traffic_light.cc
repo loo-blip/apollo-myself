@@ -20,6 +20,7 @@
 
 #include "modules/planning/traffic_rules/traffic_light/traffic_light.h"
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,6 +28,7 @@
 #include "modules/common_msgs/planning_msgs/planning_internal.pb.h"
 #include "modules/common/util/util.h"
 #include "modules/common/vehicle_state/vehicle_state_provider.h"
+#include "modules/map/hdmap/hdmap_util.h"
 #include "modules/map/pnc_map/path.h"
 #include "modules/planning/planning_base/common/frame.h"
 #include "modules/planning/planning_base/common/planning_context.h"
@@ -37,6 +39,7 @@ namespace apollo {
 namespace planning {
 
 using apollo::common::Status;
+using apollo::hdmap::HDMapUtil;
 using apollo::hdmap::PathOverlap;
 
 bool TrafficLight::Init(const std::string& name,
@@ -168,6 +171,45 @@ void TrafficLight::MakeDecisions(Frame* const frame,
     if (signal_color == perception::TrafficLight::GREEN ||
         signal_color == perception::TrafficLight::BLACK) {
       continue;
+    }
+
+    AINFO << "[traffic_light] id[" << traffic_light_overlap.object_id
+          << "] color[" << signal_color << "] s_distance[" << s_distance << "]";
+
+    // 决赛赛题一(红灯右转):红灯时主车在最右车道(右侧没有相邻车道),说明是要在
+    // 这个路口右转,直接放行、不建停止墙,否则车会一直停在红灯前动不了。决赛地图
+    // 没给右转车道标 turn(全是 NO_TURN),自带的无保护右转场景切不进来,所以改成
+    // 直接查主车"右侧":红灯时右侧 3m 处查不到车道(在最右车道、右侧就是路沿),就
+    // 认为主车是要右转。只对"红灯 + 右侧没车道"生效;直行主车右侧有相邻车道,仍
+    // 照常停车。
+    if (signal_color == perception::TrafficLight::RED) {
+      const double heading = injector_->vehicle_state()->heading();
+      const double x = injector_->vehicle_state()->x();
+      const double y = injector_->vehicle_state()->y();
+
+      // 右侧是否有车道:车头方向顺时针转 90° 就是右侧(ENU 下 heading 逆时针为正),
+      // 在主车右侧 3m 处取查询点、半径 2m 内查车道。查不到 = 在最右车道 = 右转。
+      static constexpr double kRightLateralOffset = 3.0;  // 右侧查询点横向距离 m
+      static constexpr double kRightSearchRadius = 2.0;   // 查询半径 m
+      common::PointENU right_point;
+      right_point.set_x(x + std::cos(heading - M_PI_2) * kRightLateralOffset);
+      right_point.set_y(y + std::sin(heading - M_PI_2) * kRightLateralOffset);
+      std::vector<hdmap::LaneInfoConstPtr> right_lanes;
+      const bool has_right_lane =
+          HDMapUtil::BaseMap().GetLanes(right_point, kRightSearchRadius,
+                                        &right_lanes) == 0 &&
+          !right_lanes.empty();
+
+      AINFO << "[traffic_light-red] id[" << traffic_light_overlap.object_id
+            << "] heading[" << heading << "] x[" << x << "] y[" << y
+            << "] right_lanes[" << right_lanes.size() << "]";
+
+      if (!has_right_lane) {
+        AINFO << "[traffic_light-red] no right lane, treat as right turn, "
+                 "skip stop decision for traffic_light["
+              << traffic_light_overlap.object_id << "]";
+        continue;
+      }
     }
 
     // Red/Yellow/Unknown: check deceleration
