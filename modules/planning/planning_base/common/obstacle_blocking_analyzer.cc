@@ -47,6 +47,28 @@ bool IsNonmovableObstacle(const ReferenceLineInfo& reference_line_info,
     return false;
   }
 
+  // Pedestrians / bicycles may move at any time. The ADC should stop and wait
+  // behind them instead of side-passing, so the "obstacle stop avoidance"
+  // scenario stops at a controlled distance instead of attempting a lane
+  // borrow.
+  const auto obstacle_type = obstacle.Perception().type();
+  if (obstacle_type == apollo::perception::PerceptionObstacle::PEDESTRIAN ||
+      obstacle_type == apollo::perception::PerceptionObstacle::BICYCLE) {
+    ADEBUG << "It is a pedestrian/bicycle and may move; wait for it.";
+    return false;
+  }
+
+  // Static non-vehicle obstacles (e.g. construction cones / barriers /
+  // unknown unmovable) are non-movable, so the ADC can nudge / side-pass them
+  // instead of stopping. This keeps the ST graph feasible in slalom / S-curve
+  // scenarios where the cones sit near the lane edge.
+  if (obstacle_type ==
+          apollo::perception::PerceptionObstacle::UNKNOWN_UNMOVABLE ||
+      obstacle_type == apollo::perception::PerceptionObstacle::UNKNOWN) {
+    ADEBUG << "It is a static cone/barrier and non-movable; side-pass it.";
+    return true;
+  }
+
   // Obstacle is parked obstacle.
   if (IsParkedVehicle(reference_line_info.reference_line(), &obstacle)) {
     ADEBUG << "It is Parked and NON-MOVABLE.";
@@ -79,8 +101,12 @@ bool IsNonmovableObstacle(const ReferenceLineInfo& reference_line_info,
     }
     return false;
   }
-  ADEBUG << "IT IS NON-MOVABLE!";
-  return true;
+  // A static vehicle that is neither parked nor queued behind another vehicle
+  // may still start moving at any time (e.g. the dynamic-obstacle-following
+  // scenario). Treat it as movable so the ADC stops and follows it instead of
+  // attempting a side-pass that could be blocked by road conditions.
+  ADEBUG << "It is static but may move; wait for it.";
+  return false;
 }
 
 // This is the side-pass condition for every obstacle.
