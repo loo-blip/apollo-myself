@@ -1,0 +1,13 @@
+# APPROACH 阶段 速度初始边界决策器
+# 控制车辆接近接驳点过程中的速度行为
+
+# 向心加速度上限 (m/s²)，a = v² × κ，限制过弯速度
+max_centric_acceleration_limit: 2.0
+# 最小曲率阈值，小于此值视为直线（避免除以零）
+minimal_kappa: 0.00001
+# 速度边界沿 s 方向延伸的距离 (m)
+point_extension: 1.0
+# 最低允许速度 (m/s)，2.5 m/s = 9 km/h，防止车辆因速度过低停滞爬行
+lowest_speed: 2.5
+# 碰撞安全距离 (m)，障碍物前后各留 1m 缓冲区
+collision_safety_range: 1.0

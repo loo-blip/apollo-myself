@@ -1,1 +1,6 @@
-roi_type: PARKING
+roi_type: PULL_OVER
+roi_longitudinal_range_start: 50.0
+roi_longitudinal_range_end: 50.0
+enable_perception_obstacles: true
+perception_obstacle_buffer: 0.3
+road_boundary_buffer: 5.0

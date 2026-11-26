@@ -10,4 +10,12 @@ message LaneFollowPathConfig {
   //whether to extend adc bound buffer
   optional double extend_buffer = 2;
   optional PiecewiseJerkPathConfig path_optimizer_config = 3;
+  // Widen the lane boundary by this buffer (meters) on each side, so the ego
+  // has extra lateral room to dodge a lane-blocking obstacle (the narrow
+  // contest lane is blocked by a car head, so the ego needs lane width >= ego
+  // width + the obstacle's protrusion). 0 = no widening.
+  optional double lane_width_buffer = 4 [default = 0.0];
+  // Force the ego to dodge obstacles on their LEFT side (pass on the left).
+  // The default heuristic may choose right; contest 6 requires dodging left.
+  optional bool force_left_nudge = 5 [default = false];
 }

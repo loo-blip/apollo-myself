@@ -168,6 +168,7 @@ Status OpenSpaceTrajectoryProvider::Process() {
       thread_data_.obstacles_vertices_vec =
           open_space_info.obstacles_vertices_vec();
       thread_data_.XYbounds = open_space_info.ROI_xy_boundary();
+      planned_obstacle_num_ = open_space_info.obstacles_num();
       data_ready_.store(true);
       is_planned_ = true;
     } else {
@@ -187,6 +188,19 @@ Status OpenSpaceTrajectoryProvider::Process() {
 
     // Check if trajectory updated
     if (trajectory_updated_) {
+      // The A* used the obstacle set captured when the plan started. If a new
+      // obstacle appeared in the ROI since then (perception can briefly miss a
+      // parked car, then re-detect it under a new id), the freshly computed
+      // trajectory may run straight through it. Discard it and let the next
+      // frame replan with the updated obstacle set.
+      if (open_space_info.obstacles_num() > planned_obstacle_num_) {
+        AINFO << "obstacle set grew (" << planned_obstacle_num_ << " -> "
+              << open_space_info.obstacles_num()
+              << "), discard stale trajectory and replan";
+        trajectory_updated_.store(false);
+        is_planned_ = false;
+        return Status::OK();
+      }
       std::lock_guard<std::mutex> lock(open_space_mutex_);
       LoadResult(trajectory_data);
       if (FLAGS_enable_record_debug) {

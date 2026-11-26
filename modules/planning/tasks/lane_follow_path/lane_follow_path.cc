@@ -98,6 +98,16 @@ bool LaneFollowPath::DecidePathBounds(std::vector<PathBoundary>* boundary) {
     AERROR << "Failed to decide a rough boundary based on self lane.";
     return false;
   }
+  // Widen the lane boundary (scenario-specific) so the ego has extra lateral
+  // room to dodge a lane-blocking obstacle. This directly widens the lane by
+  // lane_width_buffer on each side, unlike GetBoundaryFromRoad (which depends on
+  // the map's road width and may still be too narrow).
+  if (config_.lane_width_buffer() > 0.0) {
+    for (auto& bound_point : path_bound) {
+      bound_point.l_upper.l += config_.lane_width_buffer();
+      bound_point.l_lower.l -= config_.lane_width_buffer();
+    }
+  }
   if (is_include_adc) {
     PathBoundsDeciderUtil::ExtendBoundaryByADC(
         *reference_line_info_, init_sl_state_, config_.extend_buffer(),
@@ -122,7 +132,8 @@ bool LaneFollowPath::DecidePathBounds(std::vector<PathBoundary>* boundary) {
                                        init_sl_state_);
   if (!PathBoundsDeciderUtil::GetBoundaryFromStaticObstacles(
           *reference_line_info_, &obs_sl_polygons, init_sl_state_, &path_bound,
-          &blocking_obstacle_id, &path_narrowest_width)) {
+          &blocking_obstacle_id, &path_narrowest_width,
+          config_.force_left_nudge())) {
     const std::string msg =
         "Failed to decide fine tune the boundaries after "
         "taking into consideration all static obstacles.";

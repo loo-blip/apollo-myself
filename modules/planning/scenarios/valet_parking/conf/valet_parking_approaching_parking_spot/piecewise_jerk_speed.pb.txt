@@ -1,0 +1,15 @@
+# APPROACH 阶段 分段 Jerk 速度平滑器
+# 对速度曲线做二次优化，最小化 jerk 使加减速更平顺
+
+# 加速度项权重
+acc_weight: 1.0
+# jerk 项权重
+jerk_weight: 3.0
+# 曲率惩罚权重，大曲率处强制减速
+kappa_penalty_weight: 10.0
+# 跟随参考 s 进度的权重
+ref_s_weight: 10.0
+# 跟随参考速度的权重
+ref_v_weight: 10.0
+# 跟车距离缓冲 (m)
+follow_distance_buffer: 0.1

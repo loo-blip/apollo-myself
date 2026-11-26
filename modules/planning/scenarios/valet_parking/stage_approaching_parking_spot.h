@@ -30,6 +30,10 @@
 namespace apollo {
 namespace planning {
 
+// APPROACH: native SL/EM on-lane cruise. Ignores static obstacles near the
+// parking spot (they are PARK's OpenSpace problem, not the approach's), places
+// a stop fence on the lane centerline just before the spot, and hands off to
+// PARK once the ego has physically settled there.
 class StageApproachingParkingSpot : public Stage {
  public:
   bool Init(const StagePipeline& config,
@@ -39,9 +43,12 @@ class StageApproachingParkingSpot : public Stage {
                       Frame* frame) override;
 
  private:
-  bool CheckADCStop(const Frame& frame);
-
   ScenarioValetParkingConfig scenario_config_;
+  // Physical-settling detection (world-frame displacement, not noisy |v|).
+  double settled_ref_x_ = 0.0;
+  double settled_ref_y_ = 0.0;
+  int settled_tick_count_ = 0;
+  int approach_tick_count_ = 0;
 };
 
 CYBER_PLUGIN_MANAGER_REGISTER_PLUGIN(

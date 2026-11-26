@@ -88,6 +88,21 @@ Status OpenSpaceTrajectoryPartition::Process() {
   const auto& stitched_trajectory_result =
       open_space_info.stitched_trajectory_result();
 
+  // The OpenSpace optimizer runs async; on the first frame(s) its result is
+  // still empty ("computation not finished"). PartitionTrajectory would then
+  // access raw_trajectory[1] on an empty trajectory and crash the whole
+  // planning process. Publish a standstill trajectory in the current gear
+  // instead of an empty NEUTRAL one, so the ego holds still without flashing
+  // N while A*/IPOPT warm up.
+  if (stitched_trajectory_result.size() < 2) {
+    auto* chosen = open_space_info_ptr->mutable_chosen_partitioned_trajectory();
+    chosen->first.clear();
+    chosen->second = frame_->vehicle_state().gear();
+    GenerateStopTrajectory(&chosen->first, 0.0);
+    AINFO << "stitched trajectory too short, hold in current gear";
+    return Status::OK();
+  }
+
   auto* interpolated_trajectory_result_ptr =
       open_space_info_ptr->mutable_interpolated_trajectory_result();
 

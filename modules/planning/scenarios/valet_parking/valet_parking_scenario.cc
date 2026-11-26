@@ -20,18 +20,22 @@
 
 #include "modules/planning/scenarios/valet_parking/valet_parking_scenario.h"
 
+#include <limits>
+#include <vector>
+
+#include "modules/common/math/polygon2d.h"
+#include "modules/common/math/vec2d.h"
+#include "modules/common/util/point_factory.h"
+#include "modules/common_msgs/routing_msgs/routing.pb.h"
 #include "modules/planning/planning_base/common/frame.h"
-#include "modules/planning/scenarios/valet_parking/stage_approaching_parking_spot.h"
-#include "modules/planning/scenarios/valet_parking/stage_parking.h"
 
 namespace apollo {
 namespace planning {
 
-using apollo::common::VehicleState;
+using apollo::common::math::Polygon2d;
 using apollo::common::math::Vec2d;
-using apollo::hdmap::ParkingSpaceInfoConstPtr;
-using apollo::hdmap::Path;
 using apollo::hdmap::PathOverlap;
+using apollo::routing::LaneWaypoint;
 
 bool ValetParkingScenario::Init(std::shared_ptr<DependencyInjector> injector,
                                 const std::string& name) {
@@ -57,94 +61,186 @@ bool ValetParkingScenario::Init(std::shared_ptr<DependencyInjector> injector,
 
 bool ValetParkingScenario::IsTransferable(const Scenario* const other_scenario,
                                           const Frame& frame) {
-  // TODO(all) Implement available parking spot detection by preception results
-  if (!frame.local_view().planning_command->has_parking_command()) {
-    return false;
-  }
   if (other_scenario == nullptr || frame.reference_line_info().empty()) {
     return false;
   }
-  std::string target_parking_spot_id;
-  if (frame.local_view().planning_command->has_parking_command() &&
-      frame.local_view()
-          .planning_command->parking_command()
-          .has_parking_spot_id()) {
-    target_parking_spot_id = frame.local_view()
-                                 .planning_command->parking_command()
-                                 .parking_spot_id();
-  } else {
-    ADEBUG << "No parking space id from routing";
+
+  // Do not re-trigger immediately after leaving; the spot the ego just vacated
+  // would otherwise look free again and re-hijack the scenario.
+  if (frame.vehicle_state().timestamp() - context_.leave_finished_timestamp <
+      30.0) {
     return false;
   }
 
-  if (target_parking_spot_id.empty()) {
+  PathOverlap target;
+  if (!FindDockingParkingSpot(frame, &target)) {
     return false;
   }
 
-  const auto& nearby_path =
-      frame.reference_line_info().front().reference_line().map_path();
-  PathOverlap parking_space_overlap;
-  const auto& vehicle_state = frame.vehicle_state();
-
-  if (!SearchTargetParkingSpotOnPath(nearby_path, target_parking_spot_id,
-                                     &parking_space_overlap)) {
-    ADEBUG << "No such parking spot found after searching all path forward "
-              "possible"
-           << target_parking_spot_id;
-    return false;
+  context_.target_parking_spot_id = target.object_id;
+  // Cache the anchor so APPROACH can place a stop fence on the reference line
+  // without re-reading planning_command.
+  Vec2d anchor_cache;
+  if (GetDockingAnchor(frame, &anchor_cache)) {
+    context_.target_anchor_x = anchor_cache.x();
+    context_.target_anchor_y = anchor_cache.y();
   }
-  double parking_spot_range_to_start =
-      context_.scenario_config.parking_spot_range_to_start();
-  if (!CheckDistanceToParkingSpot(frame, vehicle_state, nearby_path,
-                                  parking_spot_range_to_start,
-                                  parking_space_overlap)) {
-    ADEBUG << "target parking spot found, but too far, distance larger than "
-              "pre-defined distance"
-           << target_parking_spot_id;
-    return false;
-  }
-  context_.target_parking_spot_id = target_parking_spot_id;
+  // The scenario context persists across transfers. Reset PULL_OUT stage state
+  // so the next PULL_OUT re-seeds park_and_go.adc_init_position; otherwise a
+  // previous cycle leaves pull_out_init_done=true and the ROI_DECIDER fails
+  // with "ADC initial position is unavailable".
+  context_.pull_out_init_done = false;
+  context_.pull_out_start_recorded = false;
+  context_.pull_out_start_x = 0.0;
+  context_.pull_out_start_y = 0.0;
+  AINFO << "ValetParking: taking over, parking_spot_id=" << target.object_id
+        << " anchor=(" << context_.target_anchor_x << ", "
+        << context_.target_anchor_y << ")";
   return true;
 }
 
-bool ValetParkingScenario::SearchTargetParkingSpotOnPath(
-    const Path& nearby_path, const std::string& target_parking_id,
-    PathOverlap* parking_space_overlap) {
-  const auto& parking_space_overlaps = nearby_path.parking_space_overlaps();
-  for (const auto& parking_overlap : parking_space_overlaps) {
-    if (parking_overlap.object_id == target_parking_id) {
-      *parking_space_overlap = parking_overlap;
-      return true;
+bool ValetParkingScenario::FindDockingParkingSpot(
+    const Frame& frame, PathOverlap* out) const {
+  Vec2d anchor;
+  if (!GetDockingAnchor(frame, &anchor)) {
+    ADEBUG << "ValetParking: routing has no usable docking anchor";
+    return false;
+  }
+
+  // Range gate: only trigger when ADC is reasonably close to the anchor.
+  const auto& vs = frame.vehicle_state();
+  const Vec2d adc_xy(vs.x(), vs.y());
+  const double range = context_.scenario_config.parking_spot_range_to_start();
+  const double adc_to_anchor = (adc_xy - anchor).Length();
+  if (adc_to_anchor > range) {
+    return false;
+  }
+
+  // Go straight to HDMap to enumerate every spot near the anchor (the map path
+  // may not expose the spot tied to the station).
+  static constexpr double kSearchRadius = 12.0;
+  auto anchor_enu =
+      common::util::PointFactory::ToPointENU(anchor.x(), anchor.y(), 0.0);
+  std::vector<hdmap::ParkingSpaceInfoConstPtr> spots;
+  if (hdmap_->GetParkingSpaces(anchor_enu, kSearchRadius, &spots) != 0 ||
+      spots.empty()) {
+    AINFO << "ValetParking: no parking_space within " << kSearchRadius
+          << "m of anchor";
+    return false;
+  }
+
+  hdmap::ParkingSpaceInfoConstPtr best = nullptr;
+  double best_d = std::numeric_limits<double>::infinity();
+  for (const auto& spot : spots) {
+    if (spot == nullptr) {
+      continue;
     }
+    const auto& pts = spot->polygon().points();
+    if (pts.empty()) {
+      continue;
+    }
+    Vec2d center(0.0, 0.0);
+    for (const auto& p : pts) {
+      center += p;
+    }
+    center /= static_cast<double>(pts.size());
+
+    // Pick the spot closest to the DOCKING ANCHOR (the station waypoint), not
+    // to the ADC — the ADC may still be ~25m away at trigger time, so
+    // "closest to ADC" can pick the wrong bay.
+    const double d = (center - anchor).Length();
+    AINFO << "ValetParking: candidate " << spot->id().id()
+          << " anchor_dist=" << d;
+    if (d >= best_d) {
+      continue;
+    }
+    if (IsParkingSpotOccupied(spot->id().id(), frame)) {
+      AINFO << "ValetParking: skip occupied spot " << spot->id().id();
+      continue;
+    }
+    best = spot;
+    best_d = d;
+  }
+
+  if (best == nullptr) {
+    AINFO << "ValetParking: every candidate spot around anchor is occupied";
+    return false;
+  }
+
+  out->object_id = best->id().id();
+  out->start_s = 0.0;
+  out->end_s = 0.0;
+  return true;
+}
+
+bool ValetParkingScenario::GetDockingAnchor(const Frame& frame,
+                                            Vec2d* anchor) const {
+  const auto& lv = frame.local_view();
+
+  // Preferred: an intermediate waypoint from the original routing request
+  // (the station). waypoint[0] is start, waypoint[n-1] is destination; anything
+  // in between is a mandated pass-through point.
+  if (lv.planning_command != nullptr &&
+      lv.planning_command->has_lane_follow_command()) {
+    const auto& lfc = lv.planning_command->lane_follow_command();
+    if (lfc.has_routing_request()) {
+      const auto& waypoints = lfc.routing_request().waypoint();
+      if (waypoints.size() > 2) {
+        const auto& vs = frame.vehicle_state();
+        const Vec2d adc_xy(vs.x(), vs.y());
+        const LaneWaypoint* best = nullptr;
+        double best_d2 = std::numeric_limits<double>::infinity();
+        for (int i = 1; i + 1 < waypoints.size(); ++i) {
+          const auto& wp = waypoints.Get(i);
+          if (!wp.has_pose()) {
+            continue;
+          }
+          Vec2d p(wp.pose().x(), wp.pose().y());
+          double d2 = (p - adc_xy).LengthSquare();
+          if (d2 < best_d2) {
+            best = &wp;
+            best_d2 = d2;
+          }
+        }
+        if (best != nullptr) {
+          anchor->set_x(best->pose().x());
+          anchor->set_y(best->pose().y());
+          return true;
+        }
+      }
+    }
+  }
+
+  // Fallback: routing end waypoint.
+  if (lv.end_lane_way_point != nullptr) {
+    anchor->set_x(lv.end_lane_way_point->pose().x());
+    anchor->set_y(lv.end_lane_way_point->pose().y());
+    return true;
   }
   return false;
 }
 
-bool ValetParkingScenario::CheckDistanceToParkingSpot(
-    const Frame& frame, const VehicleState& vehicle_state,
-    const Path& nearby_path, const double parking_start_range,
-    const PathOverlap& parking_space_overlap) {
-  // TODO(Jinyun) parking overlap s are wrong on map, not usable
-  const hdmap::HDMap* hdmap = hdmap::HDMapUtil::BaseMapPtr();
+bool ValetParkingScenario::IsParkingSpotOccupied(
+    const std::string& parking_spot_id, const Frame& frame) const {
   hdmap::Id id;
-  double center_point_s, center_point_l;
-  id.set_id(parking_space_overlap.object_id);
-  ParkingSpaceInfoConstPtr target_parking_spot_ptr =
-      hdmap->GetParkingSpaceById(id);
-  Vec2d left_bottom_point = target_parking_spot_ptr->polygon().points().at(0);
-  Vec2d right_bottom_point = target_parking_spot_ptr->polygon().points().at(1);
-  Vec2d right_top_point = target_parking_spot_ptr->polygon().points().at(2);
-  Vec2d left_top_point = target_parking_spot_ptr->polygon().points().at(3);
-  Vec2d center_point = (left_bottom_point + right_bottom_point +
-                        right_top_point + left_top_point) /
-                       4.0;
-  nearby_path.GetNearestPoint(center_point, &center_point_s, &center_point_l);
-  double vehicle_point_s = 0.0;
-  double vehicle_point_l = 0.0;
-  Vec2d vehicle_vec(vehicle_state.x(), vehicle_state.y());
-  nearby_path.GetNearestPoint(vehicle_vec, &vehicle_point_s, &vehicle_point_l);
-  if (std::abs(center_point_s - vehicle_point_s) < parking_start_range) {
-    return true;
+  id.set_id(parking_spot_id);
+  auto spot = hdmap_->GetParkingSpaceById(id);
+  if (spot == nullptr) {
+    return false;
+  }
+
+  // Do NOT shrink the spot polygon: any static obstacle that overlaps the spot
+  // (even partially, e.g. a car head sticking into the first spot) makes it
+  // unavailable. The correct spot is the second (free) one.
+  const Polygon2d& spot_polygon = spot->polygon();
+
+  for (const auto* obstacle : frame.obstacles()) {
+    if (obstacle == nullptr || obstacle->IsVirtual() || !obstacle->IsStatic()) {
+      continue;
+    }
+    if (spot_polygon.HasOverlap(obstacle->PerceptionPolygon())) {
+      return true;
+    }
   }
   return false;
 }

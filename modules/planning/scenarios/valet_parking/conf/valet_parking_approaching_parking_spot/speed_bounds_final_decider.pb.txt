@@ -1,0 +1,8 @@
+# APPROACH 阶段 速度最终边界决策器
+# 参数与 priori 保持一致，确保最终边界紧贴初始约束
+
+max_centric_acceleration_limit: 2.0
+minimal_kappa: 0.00001
+point_extension: 1.0
+lowest_speed: 2.5
+collision_safety_range: 1.0

@@ -1,0 +1,26 @@
+# APPROACH 阶段 LaneFollowPath 配置
+# 目标：让路径在接近障碍物时更愿意横向脱离参考线（nudge），而不是死贴参考线，
+# 从而绕开停在车道上的障碍物，避免它在 ST 图里形成"停止墙"把速度压到 0。
+
+is_extend_lane_bounds_to_include_adc: true
+extend_buffer: 0.2
+# 直接拓宽车道边界（每侧加 6.0m），大胆留足横向空间。
+# 障碍物左边缘最大到 l≈1.33，自车要完全绕到它左边需中心 l>1.33+1.05=2.38，
+# 加 6.0m 后左边界到 ~6.97m，nudge 中心能到 ~4m，右边缘离障碍物 ~1.5m，不再擦。
+lane_width_buffer: 6.0
+# 强制向左绕（从障碍物左侧通过）。默认 nudge 启发式会选右侧绕，这里明确向左。
+force_left_nudge: true
+
+path_optimizer_config {
+  # 贴近参考线（l=0）的惩罚权重。默认 1.0，改成 0 彻底放松"贴参考线"限制，
+  # 让路径以 nudge 中心（path_reference_l_weight 指定的 ref_l）为准。
+  l_weight: 0.0
+  dl_weight: 20.0
+  # 二阶/三阶导数权重（曲率/jerk 平滑）。默认 1000/50000 太高，会强迫横向偏移
+  # 非常平滑，导致 S 型绕障画不出来。放松到 1/10，允许更陡的横向偏离。
+  ddl_weight: 100.0
+  dddl_weight: 5000.0
+  lateral_derivative_bound_default: 2.0
+  # 接近障碍物时朝 nudge 中心(被障碍物收窄后的边界中点)的拉力权重。
+  path_reference_l_weight: 100
+}

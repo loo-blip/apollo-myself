@@ -1,0 +1,24 @@
+# ============================================================
+# PULL_OUT 阶段 ROI 决策器
+# roi_type: PARK_AND_GO = 从 plan_status.park_and_go 初始位姿 + 参考线终点构建 ROI
+# ============================================================
+
+# ROI 类型
+roi_type: PARK_AND_GO
+# ROI 线段最小角度 (rad)，0.15 ≈ 8.6°
+roi_line_segment_min_angle: 0.15
+# ROI 线段长度 (m)
+roi_line_segment_length: 0.2
+# 感知障碍物缓冲距离 (m)
+perception_obstacle_buffer: 0.5
+# 终点沿参考线的距离 (m)，从当前位置沿参考线走 35m 作为驶离终点
+# 确保 OSP 目标点落在主路上，轨迹足够长让车完全汇入车道
+end_pose_s_distance: 35.0
+# 车辆后方 ROI 范围 (m)
+roi_longitudinal_range_start: 10.0
+# 车辆前方 ROI 范围 (m)，50m 预留充足的驶离+汇入空间
+roi_longitudinal_range_end: 50.0
+# 道路边界横向外扩 (m)。PARK_AND_GO 的 ROI 只用道路边界（GetRoadBoundary），
+# 车停在泊车湾里时自车 box 会略微越过右边界，导致 A* start_node 判为
+# "in collision" 而规划不出驶离轨迹。外扩后把泊车湾罩进来。
+road_boundary_buffer: 2.0

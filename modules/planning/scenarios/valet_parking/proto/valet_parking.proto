@@ -5,8 +5,12 @@ package apollo.planning;
 message ScenarioValetParkingConfig {
   // Only when the distance between the vehicle and parking spot is smaller 
   // than this value, "ValetParkingScenario" can be entered
-  optional double parking_spot_range_to_start = 1 [default = 20.0];
+  optional double parking_spot_range_to_start = 1 [default = 25.0];
   // Only when the distance between the vehicle and pre-stop distance is smaller
   // than this value, "StageApproachingParkingSpot" can be finished
   optional double max_valid_stop_distance = 2 [default = 1.0];  // meter
+  // Stop the approach this many meters BEFORE the spot center (along the
+  // reference line s), so the ego halts on the lane centerline with a clean
+  // heading for the PARK OpenSpace start pose.
+  optional double approach_stop_setback = 3 [default = 2.5];  // meter
 }

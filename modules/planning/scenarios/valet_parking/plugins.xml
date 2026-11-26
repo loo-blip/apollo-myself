@@ -2,4 +2,5 @@
     <class type="apollo::planning::ValetParkingScenario" base_class="apollo::planning::Scenario"></class>
     <class type="apollo::planning::StageApproachingParkingSpot" base_class="apollo::planning::Stage"></class>
     <class type="apollo::planning::StageParking" base_class="apollo::planning::Stage"></class>
+    <class type="apollo::planning::StagePullOut" base_class="apollo::planning::Stage"></class>
 </library>

@@ -213,7 +213,7 @@ bool PathBoundsDeciderUtil::UpdatePathBoundaryBySLPolygon(
     const ReferenceLineInfo& reference_line_info,
     std::vector<SLPolygon>* const sl_polygon, const SLState& init_sl_state,
     PathBoundary* const path_boundary, std::string* const blocked_id,
-    double* const narrowest_width) {
+    double* const narrowest_width, const bool force_left_nudge) {
   std::vector<double> center_l;
   double max_nudge_check_distance;
   if (reference_line_info.IsChangeLanePath() ||
@@ -270,7 +270,10 @@ bool PathBoundsDeciderUtil::UpdatePathBoundaryBySLPolygon(
               << ", obs id: " << sl_polygon->at(j).id()
               << ", obs l: " << l_lower << ", " << l_upper;
         double obs_l = (l_lower + l_upper) / 2;
-        if (std::fabs(obs_l - mid_l) < 0.4 &&
+        if (force_left_nudge) {
+          sl_polygon->at(j).SetNudgeInfo(SLPolygon::LEFT_NUDGE);
+          AINFO << sl_polygon->at(j).id() << " force left nudge";
+        } else if (std::fabs(obs_l - mid_l) < 0.4 &&
             std::fabs(path_boundary_s - init_sl_state.first[0]) < 5.0) {
           if (init_sl_state.second[0] < obs_l) {
             sl_polygon->at(j).SetNudgeInfo(SLPolygon::RIGHT_NUDGE);
@@ -558,10 +561,10 @@ bool PathBoundsDeciderUtil::GetBoundaryFromStaticObstacles(
     const ReferenceLineInfo& reference_line_info,
     std::vector<SLPolygon>* const sl_polygons, const SLState& init_sl_state,
     PathBoundary* const path_boundary, std::string* const blocking_obstacle_id,
-    double* const narrowest_width) {
+    double* const narrowest_width, const bool force_left_nudge) {
   UpdatePathBoundaryBySLPolygon(reference_line_info, sl_polygons, init_sl_state,
                                 path_boundary, blocking_obstacle_id,
-                                narrowest_width);
+                                narrowest_width, force_left_nudge);
   AddExtraPathBound(*sl_polygons, path_boundary, init_sl_state,
                     blocking_obstacle_id);
   return true;

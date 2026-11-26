@@ -108,7 +108,8 @@ class PathBoundsDeciderUtil {
       const ReferenceLineInfo& reference_line_info,
       std::vector<SLPolygon>* const sl_polygons, const SLState& init_sl_state,
       PathBoundary* const path_boundaries,
-      std::string* const blocking_obstacle_id, double* const narrowest_width);
+      std::string* const blocking_obstacle_id, double* const narrowest_width,
+      const bool force_left_nudge = false);
 
   static std::vector<ObstacleEdge> SortObstaclesForSweepLine(
       const IndexedList<std::string, Obstacle>& indexed_obstacles,
@@ -186,7 +187,7 @@ class PathBoundsDeciderUtil {
       const ReferenceLineInfo& reference_line_info,
       std::vector<SLPolygon>* const sl_polygon, const SLState& init_sl_state,
       PathBoundary* const path_boundary, std::string* const blocked_id,
-      double* const narrowest_width);
+      double* const narrowest_width, const bool force_left_nudge = false);
   static bool AddCornerPoint(double s, double l_lower, double l_upper,
                              const PathBoundary& path_boundary,
                              ObsCornerConstraints* extra_constraints);

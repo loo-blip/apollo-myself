@@ -101,6 +101,11 @@ class OpenSpaceTrajectoryProvider : public TrajectoryOptimizer {
   std::atomic<bool> trajectory_skipped_{false};
   std::mutex open_space_mutex_;
   bool is_planned_ = false;
+  // Number of obstacles (ROI boundary + perception) captured when the last A*
+  // plan was started. If the current frame reports MORE obstacles, a parked car
+  // was temporarily missed by perception when the plan started; discard the
+  // stale result and replan.
+  size_t planned_obstacle_num_ = 0;
   OpenSpaceTrajectoryProviderConfig config_;
 };
 

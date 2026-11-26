@@ -72,6 +72,15 @@ Status OpenSpaceFallbackDecider::Process(Frame* frame) {
     AINFO << "has got fallback decider, skip";
     return Status::OK();
   }
+  // The OpenSpace optimizer runs async; on the first frame(s) its result is
+  // still empty ("computation not finished"), so the partitioned trajectory is
+  // empty too. IsCollisionFreeTrajectory would then call
+  // QueryLowerBoundPoint(0.0) on an empty trajectory and crash. Skip the
+  // fallback check until a real trajectory exists.
+  if (frame_->open_space_info().chosen_partitioned_trajectory().first.empty()) {
+    AINFO << "chosen partitioned trajectory empty, skip fallback check";
+    return Status::OK();
+  }
   BuildPredictedEnvironment(frame->obstacles(), predicted_bounding_rectangles);
   ADEBUG << "Numbers of obstsacles are: " << frame->obstacles().size();
   ADEBUG << "Numbers of predicted bounding rectangles are: "

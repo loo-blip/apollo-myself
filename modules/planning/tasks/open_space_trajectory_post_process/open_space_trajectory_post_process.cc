@@ -74,17 +74,45 @@ bool OpenSpaceTrajectoryPostProcess::Init(
 Status OpenSpaceTrajectoryPostProcess::Process() {
   const auto& open_space_info = frame_->open_space_info();
   auto open_space_info_ptr = frame_->mutable_open_space_info();
-  if (open_space_info_ptr->optimizer_trajectory_data().empty()) {
-    AINFO << "optimize trajectory empty";
-    return Status::OK();
-  }
 
+  // Carry over the previous frame's partitioned/interpolated trajectories
+  // BEFORE the empty check. The OpenSpace optimizer is one-shot: after its
+  // first successful result the provider reuses the last frame's stitched
+  // trajectory but does NOT re-populate optimizer_trajectory_data, so on every
+  // frame after the first the raw optimized data is empty. Bailing out here (as
+  // before) leaves chosen_partitioned_trajectory empty and the stage publishes
+  // an empty trajectory -> vehicle holds in N. Carrying the already-partitioned
+  // trajectory forward lets us keep tracking it frame over frame.
   const Frame* previous_frame = injector_->frame_history()->Latest();
   if (previous_frame != nullptr) {
     *(open_space_info_ptr->mutable_partitioned_trajectories()) =
         previous_frame->open_space_info().partitioned_trajectories();
     *(open_space_info_ptr->mutable_interpolated_trajectory_result()) =
         previous_frame->open_space_info().interpolated_trajectory_result();
+  }
+
+  if (open_space_info_ptr->optimizer_trajectory_data().empty() &&
+      open_space_info_ptr->partitioned_trajectories().empty()) {
+    // No plan yet (async optimizer still computing). Publish a standstill
+    // trajectory in the current gear instead of an empty NEUTRAL one, so the
+    // vehicle holds still without flashing N while A*/IPOPT warm up.
+    auto* chosen = open_space_info_ptr->mutable_chosen_partitioned_trajectory();
+    chosen->first.clear();
+    chosen->second = frame_->vehicle_state().gear();
+    for (double t = 0.0; t < 1.0; t += 0.1) {
+      TrajectoryPoint point;
+      point.mutable_path_point()->set_x(frame_->vehicle_state().x());
+      point.mutable_path_point()->set_y(frame_->vehicle_state().y());
+      point.mutable_path_point()->set_theta(frame_->vehicle_state().heading());
+      point.mutable_path_point()->set_s(0.0);
+      point.mutable_path_point()->set_kappa(0.0);
+      point.set_relative_time(t);
+      point.set_v(0.0);
+      point.set_a(0.0);
+      chosen->first.emplace_back(point);
+    }
+    AINFO << "optimize trajectory empty, hold in current gear";
+    return Status::OK();
   }
 
   if (open_space_info_ptr->partitioned_trajectories().empty()) {

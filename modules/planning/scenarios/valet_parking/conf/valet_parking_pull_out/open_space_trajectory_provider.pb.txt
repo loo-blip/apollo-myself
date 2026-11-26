@@ -1,0 +1,191 @@
+# ============================================================
+# PARK 阶段 OSP 轨迹提供器（核心配置）
+# 流程：Hybrid A* 搜索粗路径 → 迭代锚定平滑 → IPOPT 距离优化
+# ============================================================
+
+open_space_trajectory_optimizer_config {
+    planner_open_space_config {
+    # ========== Hybrid A* 搜索参数 ==========
+    warm_start_config {
+        # XY 网格分辨率 (m)，越小越精细但搜索节点数指数增长
+        xy_grid_resolution: 0.2
+        # 角度网格分辨率 (rad)，0.1 ≈ 5.7°
+        phi_grid_resolution: 0.1
+        # 每个节点展开的子节点数（16 = 前后各8个方向）
+        next_node_num: 16
+        # 每次扩展步长 (m)
+        step_size: 0.1
+        # 曲率约束比例（0~1），用车辆最大曲率的 80%，留 20% 给控制器
+        traj_kappa_contraint_ratio: 0.8
+        # 前进成本权重，越大越倾向于少前进（>1 = 倒车偏好）
+        traj_forward_penalty: 1.0
+        # 倒车成本权重，越大越倾向于少倒车
+        traj_back_penalty: 1.0
+        # 换挡成本权重，越大越减少 D↔R 切换次数
+        traj_gear_switch_penalty: 3.0
+        # 转向角成本权重，越大路径越"直"
+        traj_steer_penalty: 3.0
+        # 转向变化成本权重，越大方向盘打得越慢
+        traj_steer_change_penalty: 1.0
+        # 短路径惩罚权重，防止路径没走到终点就提前终止
+        traj_short_length_penalty: 20
+        # A* 启发式搜索的网格精度 (m)
+        grid_a_star_xy_resolution: 0.25
+        # 最大探索节点数，防止搜索跑飞
+        max_explored_num: 20000
+        # 期望探索节点数，达到后搜索收敛
+        desired_explored_num: 10000
+        # 节点半径 (m)，RS 曲线碰撞检查时用
+        node_radius: 0.2
+        # A* 最大搜索时间 (秒)，超时用当前最优
+        astar_max_search_time: 20.0
+        # 期望最短路径长度 (m)，短于此时加惩罚
+        traj_expected_shortest_length: 2.0
+    }
+
+    # ========== 对偶变量暖启动 + OSQP 求解器 ==========
+    dual_variable_warm_start_config {
+        # 对偶变量权重
+        weight_d: 1.0
+        # IPOPT 非线性求解器配置（暖启动阶段用）
+        ipopt_config {
+            ipopt_print_level: 0          # 日志级别 (0=静默)
+            mumps_mem_percent: 6000       # MUMPS 内存百分比
+            mumps_pivtol: 1e-06           # MUMPS 主元容差
+            ipopt_max_iter: 100           # 最大迭代次数
+            ipopt_tol: 1e-05              # 收敛容差
+            ipopt_acceptable_constr_viol_tol: 0.1   # 可接受的约束违反容差
+            ipopt_min_hessian_perturbation: 1e-12
+            ipopt_jacobian_regularization_value: 1e-07
+            ipopt_print_timing_statistics: "yes"
+            ipopt_alpha_for_y: "min"
+            ipopt_recalc_y: "yes"
+        }
+        # QP 求解器格式
+        qp_format: OSQP
+        # 最小安全距离 (m)
+        min_safety_distance: 0.01
+        # OSQP 二次规划求解器配置
+        osqp_config {
+            alpha: 1.0
+            eps_abs: 1.0e-3              # 绝对收敛容差
+            eps_rel: 1.0e-3              # 相对收敛容差
+            max_iter: 10000              # 最大迭代次数
+            polish: true                 # 解抛光（提升精度）
+            osqp_debug_log: false
+        }
+    }
+
+    # ========== 距离逼近轨迹优化 (IPOPT) 权重 ==========
+    # 目标函数 = Σ(weight_i × cost_i)，权重越大该项越重要
+    distance_approach_config {
+        weight_steer: 0.3                # 转向角权重（越小方向盘越自由）
+        weight_a: 1.1                    # 加速度权重（越大油门越平顺）
+        weight_steer_rate: 3.0           # 转向速率权重（越大方向打得越慢）
+        weight_a_rate: 2.5               # 加速度变化率权重
+        weight_x: 2.3                    # 终点 X 位置权重（越高越精准停车）
+        weight_y: 0.7                    # 终点 Y 位置权重
+        weight_phi: 1.5                  # 终点航向角权重
+        weight_v: 0.0                    # 终点速度权重 (0=不管终点速度)
+        weight_steer_stitching: 1.75     # 转向拼接权重（轨迹段间转向连续性）
+        weight_a_stitching: 3.25         # 加速拼接权重（轨迹段间加速度连续性）
+        weight_first_order_time: 4.25    # 一阶时间权重（惩罚总时间长）
+        weight_second_order_time: 13.5   # 二阶时间权重（惩罚时间分布不均匀）
+        weight_end_state: 1.0            # 终点状态综合权重
+        weight_slack: 1.0                # 松弛变量权重（软化硬约束）
+        min_safety_distance: 0.01        # 最小安全距离 (m)
+
+        # 速度/加速度硬约束
+        max_speed_forward: 3.0           # 前进最高速度 (m/s) = 10.8 km/h
+        max_speed_reverse: 1.0           # 倒车最高速度 (m/s)
+        max_acceleration_forward: 2.5    # 前进最大加速度 (m/s²)
+        max_acceleration_reverse: 1.0    # 倒车最大加速度 (m/s²)
+
+        min_time_sample_scaling: 0.8     # 时间缩放下限（允许时间序列收缩20%）
+        max_time_sample_scaling: 1.2     # 时间缩放上限（允许时间序列拉伸20%）
+        use_fix_time: false              # false=可变时间步长，true=固定时间步长
+
+        # IPOPT 非线性求解器（轨迹优化主阶段）
+        ipopt_config {
+            ipopt_print_level: 0
+            mumps_mem_percent: 6000
+            mumps_pivtol: 1e-06
+            ipopt_max_iter: 1000         # 最大迭代次数（1000 给充分收敛时间）
+            ipopt_tol: 0.0001            # 收敛容差
+            ipopt_acceptable_constr_viol_tol: 0.1
+            ipopt_min_hessian_perturbation: 1e-12
+            ipopt_jacobian_regularization_value: 1e-07
+            ipopt_print_timing_statistics: "yes"
+            ipopt_alpha_for_y: "min"
+            ipopt_recalc_y: "yes"
+            ipopt_mu_init: 0.1           # 初始障碍参数
+        }
+
+        # 调试开关（生产环境全部关闭）
+        enable_constraint_check: false
+        enable_initial_final_check: false
+        enable_jacobian_ad: false
+        enable_hand_derivative: false
+        enable_derivative_check: false
+        # 距离逼近模式：IPOPT + 终点松弛
+        distance_approach_mode: DISTANCE_APPROACH_IPOPT_RELAX_END_SLACK
+        enable_check_initial_state: false
+    }
+
+    # ========== 迭代锚定平滑器 ==========
+    # 对 Hybrid A* 粗路径做随机锚定迭代 → FEM 平滑 → 速度曲线生成
+    iterative_anchoring_smoother_config {
+        interpolated_delta_s: 0.1        # 路径插值步长 (m)
+        reanchoring_trails_num: 50       # 随机重锚定尝试次数（越多越可能找到无碰路径）
+        reanchoring_pos_stddev: 0.25     # 锚定点位置高斯噪声标准差
+        reanchoring_length_stddev: 1.0   # 锚定点间距高斯噪声标准差
+        estimate_bound: false            # false=使用 default_bound 固定值
+        default_bound: 2.0               # 边界宽度 (m)，路径可在此范围内摆动
+        vehicle_shortest_dimension: 1.04 # 车辆最短维度 (m)，碰撞检测用（约车宽）
+        collision_decrease_ratio: 0.0    # 碰撞缩减比 (0=不缩减边界，即不躲避障碍)
+
+        # FEM(有限元) 位置偏差平滑器
+        fem_pos_deviation_smoother_config {
+            use_sqp: true                # 使用序列二次规划求解
+            weight_fem_pos_deviation: 1e7      # FEM 位置偏差权重（极高=路径点几乎不动）
+            weight_path_length: 0.0            # 路径长度权重 (0=不管路径长短)
+            weight_ref_deviation: 1e3          # 参考轨迹偏差权重
+            apply_curvature_constraint: true   # 施加曲率约束
+            weight_curvature_constraint_slack_var: 1e5  # 曲率约束松弛权重（松弛=软约束）
+            curvature_constraint: 0.18         # 曲率上限 (1/m)，最小转弯半径 ≈ 5.5m
+            max_iter: 500                      # 最大迭代次数
+            time_limit: 0.0                    # 时间限制 (0=无限制)
+            verbose: false
+            scaled_termination: true
+            warm_start: true                   # 暖启动（复用上一帧结果加速收敛）
+        }
+
+        # S 曲线速度平滑器
+        s_curve_config {
+            acc_weight: 1.0              # 加速度平滑权重
+            jerk_weight: 1.0             # jerk 平滑权重
+            kappa_penalty_weight: 100.0  # 曲率处减速权重（弯道越大减速越猛）
+            ref_s_weight: 10.0           # 跟随参考 s 进度权重
+            ref_v_weight: 0.0            # 跟随参考速度权重 (0=不跟随，自由优化)
+        }
+
+        max_forward_v: 1.0               # 平滑器内前进速度上限 (m/s)
+        max_reverse_v: 1.0               # 平滑器内倒车速度上限 (m/s)
+        max_forward_acc: 0.5             # 平滑器内前进加速度上限 (m/s²)
+        max_reverse_acc: 0.3             # 平滑器内倒车加速度上限 (m/s²)
+        max_acc_jerk: 0.5                # 平滑器内 jerk 上限 (m/s³)
+        delta_t: 0.2                     # 平滑器时间步长 (秒)
+    }
+
+    delta_t: 0.5                         # 规划主时钟步长 (秒)
+    near_destination_threshold: 0.15     # 接近终点判定距离 (m)，≤此值认为到达
+    enable_linear_interpolation: false
+    is_near_destination_theta_threshold: 0.1  # 接近终点判定航向差 (rad)
+    }
+}
+# OSP 规划周期 (秒)，每 0.1 秒重新规划
+open_space_planning_period: 0.1
+# 轨迹拼接保留长度 (m)，inf=保留全部历史轨迹
+open_space_trajectory_stitching_preserved_length: inf
+# 驻车加速度 (m/s²)，OSP 完成后用此加速度保持静止
+open_space_standstill_acceleration: 0.3

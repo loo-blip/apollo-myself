@@ -35,9 +35,12 @@ class StageParking : public Stage {
                       Frame* frame) override;
 
  private:
-  StageResult FinishStage();
+  // 双重判断：destination_reached 为主，物理位置(车位中心)为兜底。
+  bool IsParkingDone(const Frame& frame);
 
-  ScenarioValetParkingConfig scenario_config_;
+  int park_stop_tick_count_ = 0;
+  bool reached_spot_ = false;
+  double reached_time_ = 0.0;
 };
 
 CYBER_PLUGIN_MANAGER_REGISTER_PLUGIN(apollo::planning::StageParking, Stage)

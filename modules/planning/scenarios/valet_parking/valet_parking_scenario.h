@@ -38,6 +38,18 @@ struct ValetParkingContext : public ScenarioContext {
   std::string target_parking_spot_id;
   bool pre_stop_rightaway_flag = false;
   hdmap::MapPathPoint pre_stop_rightaway_point;
+  // Timestamp (simulation time) when the scenario finished leaving. Guards
+  // IsTransferable against re-triggering on the spot the ego just vacated.
+  double leave_finished_timestamp = 0.0;
+  // World-frame anchor (routing docking waypoint) captured by IsTransferable.
+  // APPROACH uses it to place its stop fence on the reference line.
+  double target_anchor_x = 0.0;
+  double target_anchor_y = 0.0;
+  // PULL_OUT stage state (park-and-go handover tracking).
+  bool pull_out_init_done = false;
+  double pull_out_start_x = 0.0;
+  double pull_out_start_y = 0.0;
+  bool pull_out_start_recorded = false;
 };
 
 class ValetParkingScenario : public Scenario {
@@ -54,15 +66,14 @@ class ValetParkingScenario : public Scenario {
                       const Frame& frame) override;
 
  private:
-  static bool SearchTargetParkingSpotOnPath(
-      const hdmap::Path& nearby_path, const std::string& target_parking_id,
-      hdmap::PathOverlap* parking_space_overlap);
-  static bool CheckDistanceToParkingSpot(
-      const Frame& frame, const common::VehicleState& vehicle_state,
-      const hdmap::Path& nearby_path, const double parking_start_range,
-      const hdmap::PathOverlap& parking_space_overlap);
+  // Find the docking anchor (routing intermediate waypoint / end waypoint).
+  bool GetDockingAnchor(const Frame& frame, common::math::Vec2d* anchor) const;
+  // Find the nearest unoccupied parking spot around the anchor.
+  bool FindDockingParkingSpot(const Frame& frame, hdmap::PathOverlap* out) const;
+  // A spot is "occupied" if any static obstacle overlaps its (shrunk) polygon.
+  bool IsParkingSpotOccupied(const std::string& parking_spot_id,
+                             const Frame& frame) const;
 
- private:
   bool init_ = false;
   ValetParkingContext context_;
   const hdmap::HDMap* hdmap_ = nullptr;

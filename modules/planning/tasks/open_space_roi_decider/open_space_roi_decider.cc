@@ -622,8 +622,9 @@ void OpenSpaceRoiDecider::AddBoundaryKeyPoint(
 
   double current_check_point_heading = current_check_point.heading();
   double current_road_width =
-      is_left_curb ? nearby_path.GetRoadLeftWidth(check_point_s)
-                   : nearby_path.GetRoadRightWidth(check_point_s);
+      (is_left_curb ? nearby_path.GetRoadLeftWidth(check_point_s)
+                    : nearby_path.GetRoadRightWidth(check_point_s)) +
+      config_.road_boundary_buffer();
   // If the current center-lane checking point is an anchor point, then add
   // current left/right curb boundary point as a key point
   if (is_anchor_point) {
@@ -643,13 +644,15 @@ void OpenSpaceRoiDecider::AddBoundaryKeyPoint(
     return;
   }
   double previous_road_width =
-      is_left_curb
-          ? nearby_path.GetRoadLeftWidth(check_point_s - previous_distance_s)
-          : nearby_path.GetRoadRightWidth(check_point_s - previous_distance_s);
+      (is_left_curb
+           ? nearby_path.GetRoadLeftWidth(check_point_s - previous_distance_s)
+           : nearby_path.GetRoadRightWidth(check_point_s - previous_distance_s)) +
+      config_.road_boundary_buffer();
   double next_road_width =
-      is_left_curb
-          ? nearby_path.GetRoadLeftWidth(check_point_s + next_distance_s)
-          : nearby_path.GetRoadRightWidth(check_point_s + next_distance_s);
+      (is_left_curb
+           ? nearby_path.GetRoadLeftWidth(check_point_s + next_distance_s)
+           : nearby_path.GetRoadRightWidth(check_point_s + next_distance_s)) +
+      config_.road_boundary_buffer();
   double previous_curb_segment_angle =
       (current_road_width - previous_road_width) / previous_distance_s;
   double next_segment_angle =

@@ -327,17 +327,27 @@ Status SpeedDecider::MakeObjectDecision(
         break;
       case CROSS:
         if (mutable_obstacle->IsBlockingObstacle()) {
-          ObjectDecisionType stop_decision;
-          if (CreateStopDecision(*mutable_obstacle, &stop_decision,
-                                 -FLAGS_min_stop_distance_obstacle)) {
-            mutable_obstacle->AddLongitudinalDecision("dp_st_graph/cross",
-                                                      stop_decision);
+          if (mutable_obstacle->IsStatic()) {
+            // The path has already laterally dodged this static obstacle
+            // (valet parking approach nudges left), so the ST "CROSS" is a
+            // false positive. Skip the stop+error; the AppendIgnoreDecision at
+            // the end of this loop marks it ignore, so the ego passes it on
+            // the left cleanly and fast.
+            AINFO << "crossing static obstacle " << mutable_obstacle->Id()
+                  << " is laterally dodged, ignore for speed planning";
+          } else {
+            ObjectDecisionType stop_decision;
+            if (CreateStopDecision(*mutable_obstacle, &stop_decision,
+                                   -FLAGS_min_stop_distance_obstacle)) {
+              mutable_obstacle->AddLongitudinalDecision("dp_st_graph/cross",
+                                                        stop_decision);
+            }
+            const std::string msg =
+                absl::StrCat("Failed to find a solution for crossing obstacle: ",
+                             mutable_obstacle->Id());
+            AERROR << msg;
+            return Status(ErrorCode::PLANNING_ERROR, msg);
           }
-          const std::string msg =
-              absl::StrCat("Failed to find a solution for crossing obstacle: ",
-                           mutable_obstacle->Id());
-          AERROR << msg;
-          return Status(ErrorCode::PLANNING_ERROR, msg);
         }
         break;
       default:

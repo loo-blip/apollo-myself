@@ -1,0 +1,40 @@
+# ============================================================
+# PARK 阶段 轨迹后处理器（★ 关键任务）
+# 功能：轨迹分割 + 进度跟踪 + 设置 destination_reached
+# 缺少此任务 → destination_reached 永远为 false → PARK 无法过渡到 WAIT
+# ============================================================
+
+# 换挡最大执行时间 (秒)
+gear_shift_max_t: 3.0
+# 换挡时间离散精度 (秒)
+gear_shift_unit_t: 0.02
+# 换挡后稳定期 (秒)
+gear_shift_period_duration: 2.0
+# 轨迹插值段数
+interpolated_pieces_num: 10
+# 初始档位检查前瞻 (个轨迹点)
+initial_gear_check_horizon: 15
+# 终点航向搜索范围 (rad)，0.24 ≈ 14°（比 partition 更紧，停车精度要求高）
+heading_search_range: 0.24
+# 终点航向跟踪范围 (rad)
+heading_track_range: 1.57
+# 终点距离搜索范围 (m)，0.5m 精确停车
+distance_search_range: 0.5
+# 轨迹中点航向偏移容忍度 (rad)
+heading_offset_to_midpoint: 1.79
+# 轨迹中点横向偏移容忍度 (m)
+lateral_offset_to_midpoint: 1.5
+# 轨迹中点纵向偏移容忍度 (m)
+longitudinal_offset_to_midpoint: 0.4
+# 中点位置车辆框 IoU 阈值
+vehicle_box_iou_threshold_to_midpoint: 0.25
+# 速度重规划距离 (m)，车辆接近终点时用更严的容差
+speed_replan_distance: 2.0
+# 自车线速度阈值 (m/s)，低于此值认为已停止
+linear_velocity_threshold_on_ego: 0.1
+# 是否生成换挡期间的过渡轨迹
+use_gear_shift_trajectory: true
+# 终点目标缩放系数，1.0 = 不缩放，>1 = 放大终点窗口（更容易到达）
+scale_destination: 1.0
+# 停止检查窗口大小 (帧)，10 帧 ≈ 1 秒连续检查确保车辆确实停了
+stop_check_window: 10

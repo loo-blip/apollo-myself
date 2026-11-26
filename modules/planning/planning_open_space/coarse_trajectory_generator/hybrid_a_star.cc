@@ -173,16 +173,20 @@ bool HybridAStar::ValidityCheck(std::shared_ptr<Node3d> node) {
     for (size_t i = check_start_index; i < node_step_size; ++i) {
         if (traversed_x[i] > XYbounds_[1] || traversed_x[i] < XYbounds_[0] || traversed_y[i] > XYbounds_[3]
             || traversed_y[i] < XYbounds_[2]) {
+            AERROR << "out of XY bounds: node x=" << traversed_x[i]
+                   << " y=" << traversed_y[i] << " XYbounds x["
+                   << XYbounds_[0] << ", " << XYbounds_[1] << "] y["
+                   << XYbounds_[2] << ", " << XYbounds_[3] << "]";
             return false;
         }
         Box2d bounding_box = Node3d::GetBoundingBox(vehicle_param_, traversed_x[i], traversed_y[i], traversed_phi[i]);
         for (const auto& obstacle_linesegments : obstacles_linesegments_vec_) {
             for (const common::math::LineSegment2d& linesegment : obstacle_linesegments) {
                 if (bounding_box.HasOverlap(linesegment)) {
-                    ADEBUG << "collision start at x: " << linesegment.start().x();
-                    ADEBUG << "collision start at y: " << linesegment.start().y();
-                    ADEBUG << "collision end at x: " << linesegment.end().x();
-                    ADEBUG << "collision end at y: " << linesegment.end().y();
+                    AERROR << "collision start at x: " << linesegment.start().x();
+                    AERROR << "collision start at y: " << linesegment.start().y();
+                    AERROR << "collision end at x: " << linesegment.end().x();
+                    AERROR << "collision end at y: " << linesegment.end().y();
                     return false;
                 }
             }
